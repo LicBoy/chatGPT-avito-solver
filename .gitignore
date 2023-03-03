@@ -1,0 +1,6 @@
+CREDS*
+selenium-env/
+_pycache_/
+coverage/
+block*
+tst.py
