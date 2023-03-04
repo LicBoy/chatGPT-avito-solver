@@ -4,3 +4,4 @@ _pycache_/
 coverage/
 block*
 tst.py
+*.json

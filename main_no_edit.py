@@ -23,14 +23,15 @@ RESPONSE_WORD_TO_NUM = {
     'неинформативный' : 3
 }
 GPT_MSG_MAX_LEN = 16326
+AMOUNT_OF_ANSWERS = 2
 
 def chatGPT_try_login():
-    global chatGPT_url
+    from CREDS import GOOGLE_USERNAME
 
     loc_login_btns= '.btn-primary'
     loc_google_login_btn = 'button[data-provider~="google"]'
     loc_capcha_btn = "#challenge-stage input[type='button']"
-    loc_google_account_btn = "[data-identifier='ahmetvaleevr@gmail.com']"
+    loc_google_account_btn = f"[data-identifier='{GOOGLE_USERNAME}']"
 
     try:
         capcha_btn = WebDriverWait(browser, 10).until(
@@ -154,9 +155,25 @@ def browser_wait_all_elements_located(By_Type, locator, amount_of_elements_to_wa
 def chatGPT_wait_for_answer(total_answers, return_ans=True):
     loc_answer_is_ready = '.markdown.prose:not(.result-streaming)>p'
     loc_stop_generating_btn = '.btn'
+    loc_error_too_long_msg = '.py-2'
+
     timeout_time = 60
     GPT_answers = None
+    error_msg_elem = None
+    
     try:
+        try:
+            error_msg_elem = WebDriverWait(browser, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, loc_error_too_long_msg))
+            )
+            #Got too long msg error, do smth
+            print("TOO long message got!\nSENDING RANDOM ANSWER - 1 !!!")
+            browser.refresh()
+            time.sleep(10)
+            return "1"
+        except:
+            #No error, continue 
+            pass
         browser_wait_all_elements_located(By_Type=By.CSS_SELECTOR, locator=loc_answer_is_ready, amount_of_elements_to_wait=total_answers)
         GPT_answers = WebDriverWait(browser, 10).until(
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_answer_is_ready))
@@ -173,7 +190,7 @@ def chatGPT_wait_for_answer(total_answers, return_ans=True):
         print(f'Couldnt get response in {timeout_time} seconds. Trying new...')
         return chatGPT_wait_for_answer(total_answers, return_ans)
         
-    return GPT_answers[-1] if return_ans else None
+    return GPT_answers[-1].text if return_ans else None
     
 def chatGPT_ask(msg, text_area_element=None, mutliline=True):
     loc_textarea = 'textarea'
@@ -194,6 +211,8 @@ def chatGPT_ask(msg, text_area_element=None, mutliline=True):
     question_input.send_keys(Keys.ENTER)
 
 def chatGPT_ask_ramis(msg, text_area_element=None, mutliline=True):
+    if not chatGPT_page_ready_to_be_asked():
+        print('Not ready to be asked')
     loc_textarea = 'textarea'
     question_input = WebDriverWait(browser, 30).until(
         EC.presence_of_element_located((By.TAG_NAME, loc_textarea))
@@ -351,7 +370,6 @@ def avito_get_question_ramis():
                 continue
             res_chat += 'Продавец: ' + second + '\n' 
     res_chat += 'Конец чата\n\nВыбери ответ, учитывая инструкцию:\nДа - 1\nНет - 2\nЧат неинформативный - 3\nВ ответе напиши только цифру!'
-    print(res_descr+res_chat)
     return res_descr + res_chat
 
 def avito_select_and_send_answer(answer_num):
@@ -442,29 +460,40 @@ def chatGPT_parse_response(msg):
 from CREDS import GPT_RULES_TEXT, AVITO_NO_TASKS_MESSAGE
 browser.get(chatGPT_url)
 try:
-    if chatGPT_page_ready_to_be_asked():
-        chatGPT_ask_ramis(GPT_RULES_TEXT)
-        chatGPT_wait_for_answer(1, return_ans=False)
+    chatGPT_ask_ramis(GPT_RULES_TEXT)
+    chatGPT_wait_for_answer(total_answers=1, return_ans=False)
+        
     #This fun creates new tab and switches to it
     avito_try_login()
     cur_question = avito_get_question_ramis()
+    
     browser.switch_to.window(browser.window_handles[0])
-    if chatGPT_page_ready_to_be_asked():
-        chatGPT_ask_ramis(cur_question)
-    chatGPT_last_response = chatGPT_wait_for_answer(2, return_ans=True).text
+    chatGPT_ask_ramis(cur_question)
+    chatGPT_last_response = chatGPT_wait_for_answer(total_answers=AMOUNT_OF_ANSWERS, return_ans=True)
     chatGPT_ans_parsed = chatGPT_parse_response(chatGPT_last_response)
     while chatGPT_ans_parsed is None:
         #Regenerate response!!!
         chatGPT_last_response = chatGPT_regenerate_last_response()
         chatGPT_ans_parsed = chatGPT_parse_response(chatGPT_last_response)
+
+    
     print("RESPONSE", chatGPT_last_response, "RES:", chatGPT_ans_parsed)
     browser.switch_to.window(browser.window_handles[1])
     #avito_select_and_send_answer(chatGPT_resolution)
     while input().lower() == 'next':
         cur_question = avito_get_question_ramis()
         browser.switch_to.window(browser.window_handles[0])
-        chatGPT_edit_last_message(cur_question)
-        chatGPT_resolution = int(chatGPT_wait_for_answer(total_answers=2, return_ans=True).text)
+        #chatGPT_edit_last_message(cur_question)
+        chatGPT_ask_ramis(cur_question, mutliline=True)
+        AMOUNT_OF_ANSWERS += 1
+
+        chatGPT_last_response = chatGPT_wait_for_answer(total_answers=AMOUNT_OF_ANSWERS, return_ans=True)
+        chatGPT_ans_parsed = chatGPT_parse_response(chatGPT_last_response)
+        while chatGPT_ans_parsed is None:
+            #Regenerate response!!!
+            chatGPT_last_response = chatGPT_regenerate_last_response()
+            chatGPT_ans_parsed = chatGPT_parse_response(chatGPT_last_response)
+        print("RESPONSE", chatGPT_last_response, "RES:", chatGPT_ans_parsed)
         browser.switch_to.window(browser.window_handles[1])
 except:
     raise Exception("Some error raised!")
