@@ -1,475 +1,217 @@
 from selenium import webdriver
-import undetected_chromedriver as uc
-from selenium.webdriver import ActionChains
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import time, math
-from selenium.webdriver.support.ui import Select
+from avito_creds import LOGIN, PASSWORD
+from pageobjects.avito_project_page import AvitoProjectPage
+from data_util import DataUtil
+import time, random, os
 
-avito_url = 'https://centiman.avito.ru/service-dataset-collector-frontend/login'
-chatGPT_url = 'https://chat.openai.com/'
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
 
-options = webdriver.ChromeOptions()
-options.add_argument(r"--user-data-dir=C:\\Users\\ahmet\\AppData\\Local\\Google\\Chrome\\User Data\\Default")
-browser = uc.Chrome(options)
-browser.maximize_window()
-action = ActionChains(browser)
+import torch
+from torch.utils.data import DataLoader
+from transformers import BertTokenizer
 
-RESPONSE_WORD_TO_NUM = {
-    'да' : 1,
-    'нет': 2,
-    'неинформативный' : 3
-}
-GPT_MSG_MAX_LEN = 16326
+AVITO_URL = "https://centiman.avito.ru/"
+browser = webdriver.Chrome()
+avito_page = AvitoProjectPage(AVITO_URL, browser, {"login" : LOGIN, "password" : PASSWORD}, 739)
 
-def chatGPT_try_login():
-    global chatGPT_url
+### PREPARE ###
+tokenizer_path = 'cointegrated/rubert-tiny'
+tokenizer = BertTokenizer.from_pretrained(tokenizer_path)
 
-    loc_login_btns= '.btn-primary'
-    loc_google_login_btn = 'button[data-provider~="google"]'
-    loc_capcha_btn = "#challenge-stage input[type='button']"
-    loc_google_account_btn = "[data-identifier='ahmetvaleevr@gmail.com']"
+CLASSES = ['Да', 'Нет', 'Чат неинформативный']
+labels = dict(zip(CLASSES, range(len(CLASSES))))
 
-    try:
-        capcha_btn = WebDriverWait(browser, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, loc_capcha_btn))
-        )
-        capcha_btn.click()
-
-        while input('Capcha detected!!!\nSolve it and type "solved": ').lower() != 'solved':
-            continue
-    except:
-        print('Capcha wasnt found, moving further')
-
-    login_btns = WebDriverWait(browser, 10).until(
-        EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_login_btns))
-    )
-    login_btn = login_btns[0]
-    login_btn.click()
-    
-    google_login_btn = WebDriverWait(browser, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, loc_google_login_btn))
-            )
-    google_login_btn.click()
-
-    if google_acc_login():
-        while WebDriverWait(browser, 60).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".prose button"))
-            ) == None:
-            print("CONFIRM LOGIN ON YOUR PHONE!")
-    # #If double login needed
-    # try:
-    #     WebDriverWait(browser, 60).until(
-    #             EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_login_btns))
-    #             )
-    #     login_btns = WebDriverWait(browser, 10).until(
-    #         EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_login_btns))
-    #     )
-    #     login_btn = login_btns[0]
-    #     login_btn.click()
-
-    #     google_login_btn = WebDriverWait(browser, 10).until(
-    #             EC.presence_of_element_located((By.CSS_SELECTOR, loc_google_login_btn))
-    #             )
-    #     time.sleep(1)
-    #     google_login_btn.click()
-    #     google_account_login_btn = WebDriverWait(browser, 10).until(
-    #             EC.presence_of_element_located((By.CSS_SELECTOR, loc_google_account_btn))
-    #             )
-    #     time.sleep(1)
-    #     google_account_login_btn.click()
-    # except:
-    #     print("Logged in in first attempt, no double login needed :)")
-
-def google_acc_login():
-    from CREDS import GOOGLE_USERNAME, GOOGLE_PASSWORD
-    loc_username_input = '//*[@id ="identifierId"]'
-    loc_password_input = '//*[@id ="password"]/div[1]/div / div[1]/input'
-    loc_page_buttons = 'button>span'
-
-    google_username_inp = WebDriverWait(browser, 20).until(
-        EC.presence_of_element_located((By.XPATH, loc_username_input))
-        )
-    time.sleep(1)
-    google_username_inp.send_keys(GOOGLE_USERNAME)
-    time.sleep(0.5)
-    google_username_inp.send_keys(Keys.ENTER)
-    
-    # google_password_inp = WebDriverWait(browser, 20).until(
-    #     EC.presence_of_element_located((By.XPATH, loc_password_input))
-    #     )
-    google_password_inp = WebDriverWait(browser, 20).until(
-        EC.presence_of_element_located((By.XPATH, loc_password_input))
-        )
-    google_password_inp.send_keys(GOOGLE_PASSWORD)
-    time.sleep(0.5)
-    google_password_inp.send_keys(Keys.ENTER)
-    return True
-
-def chatGPT_skip_intro():
-    skip_button = WebDriverWait(browser, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".prose button"))
-            )
-    skip_button.click()
-    time.sleep(1)
-    skip_button = WebDriverWait(browser, 10).until(
-        EC.presence_of_element_located((By.XPATH, '//button[text()="Next"]'))
-        )
-    skip_button.click()
-    time.sleep(1)
-    skip_button = WebDriverWait(browser, 10).until(
-        EC.presence_of_element_located((By.XPATH, '//button[text()="Done"]'))
-        )
-    skip_button.click()
-
-def chatGPT_page_ready_to_be_asked():
-    loc_textarea = 'textarea'
-    try:
-        return WebDriverWait(browser, 20).until(
-            EC.presence_of_element_located((By.TAG_NAME, loc_textarea))
-        ) is not None
-    except:
-        print('ChatGPT not ready for working. Trying to login to all systems!')
-        chatGPT_try_login()
-        chatGPT_skip_intro()
-        chatGPT_page_ready_to_be_asked()
+class CustomDataset(torch.utils.data.Dataset):
+    def __init__(self, df, tokenizer, phase='test'):
+        self.phase = phase
         
-def chatGPT_send_insturctions():
-    from CREDS import GPT_RULES_TEXT
-    loc_textarea = 'textarea'
-    question_input = WebDriverWait(browser, 10).until(
-        EC.presence_of_element_located((By.TAG_NAME, loc_textarea))
-    )
-    question_input.send_keys(GPT_RULES_TEXT)
-    question_input.send_keys(Keys.ENTER)
+        if self.phase == 'train':
+            self.labels = [labels[label] for label in df['category']]
+        elif self.phase == 'test':
+            self.oid = [oid for oid in df['oid']]
+            
+        self.texts = [tokenizer(text, 
+                               padding='max_length', max_length = 512, truncation=True,
+                                return_tensors="pt") for text in df['text']]
 
-def browser_wait_all_elements_located(By_Type, locator, amount_of_elements_to_wait):
-    print(f"Waiting for {amount_of_elements_to_wait} elements to load")
-    WebDriverWait(browser, 60).until(
-            lambda browser: len(browser.find_elements(By_Type, locator)) == amount_of_elements_to_wait)
-    print(f"Elements are loaded!")
+    def classes(self):
+        return self.labels
 
-def chatGPT_wait_for_answer(total_answers, return_ans=True):
-    loc_answer_is_ready = '.markdown.prose:not(.result-streaming)>p'
-    loc_stop_generating_btn = '.btn'
-    timeout_time = 60
-    GPT_answers = None
-    try:
-        browser_wait_all_elements_located(By_Type=By.CSS_SELECTOR, locator=loc_answer_is_ready, amount_of_elements_to_wait=total_answers)
-        GPT_answers = WebDriverWait(browser, 10).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_answer_is_ready))
-        )
-    except:
-        stop_generating_btn = WebDriverWait(browser, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, loc_stop_generating_btn))
-        )
-        stop_generating_btn.click()
-        regenerate_response_btn = WebDriverWait(browser, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, loc_stop_generating_btn))
-        )
-        regenerate_response_btn.click()
-        print(f'Couldnt get response in {timeout_time} seconds. Trying new...')
-        return chatGPT_wait_for_answer(total_answers, return_ans)
-        
-    return GPT_answers[-1] if return_ans else None
+    def __len__(self):
+        if self.phase == 'train':
+            return len(self.labels)
+        elif self.phase == 'test':
+            return len(self.oid)
+
+    def get_batch_labels(self, idx):
+        return np.array(self.labels[idx])
     
-def chatGPT_ask(msg, text_area_element=None, mutliline=True):
-    loc_textarea = 'textarea'
-    question_input = WebDriverWait(browser, 30).until(
-        EC.presence_of_element_located((By.TAG_NAME, loc_textarea))
-    )
-    if text_area_element is not None:
-        question_input = text_area_element
-    if mutliline:
-        msg_lines = msg.split('\n')
-        for msg_line in msg_lines:
-            question_input.send_keys(msg_line)
-            action.key_down(Keys.SHIFT).key_down(Keys.ENTER).key_up(Keys.SHIFT).key_up(Keys.ENTER).perform()
-        question_input.send_keys(Keys.ENTER)
-        return
-    question_input.send_keys(msg)
-    WebDriverWait(browser, 30).until(EC.text_to_be_present_in_element((By.TAG_NAME, loc_textarea), msg))
-    question_input.send_keys(Keys.ENTER)
+    def get_batch_oid(self, idx):
+        return np.array(self.oid[idx])
 
-def chatGPT_ask_ramis(msg, text_area_element=None, mutliline=True):
-    loc_textarea = 'textarea'
-    question_input = WebDriverWait(browser, 30).until(
-        EC.presence_of_element_located((By.TAG_NAME, loc_textarea))
-    )
+    def get_batch_texts(self, idx):
+        return self.texts[idx]
 
-    JS_ADD_TEXT_TO_INPUT = """
-    var elm = arguments[0], txt = arguments[1];
-    elm.value += txt;
-    elm.dispatchEvent(new Event('change'));
-    """
+    def __getitem__(self, idx):
+        if self.phase == 'train':
+            batch_texts = self.get_batch_texts(idx)
+            batch_y = self.get_batch_labels(idx)
+            return batch_texts, batch_y
+        elif self.phase == 'test':
+            batch_texts = self.get_batch_texts(idx)
+            batch_oid = self.get_batch_oid(idx)
+            return batch_texts, batch_oid
 
-    if text_area_element is not None:
-        question_input = text_area_element
-        question_input.clear()
-        question_input.click()
-    if mutliline:
-        msg_lines = msg.split('\n')
-        print('MSG LINES', msg_lines)
-        for msg_line in msg_lines:
-            browser.execute_script(JS_ADD_TEXT_TO_INPUT, question_input, msg_line)
-            action.key_down(Keys.SHIFT).key_down(Keys.ENTER).key_up(Keys.SHIFT).key_up(Keys.ENTER).perform()
-        if text_area_element is None:
-            question_input.send_keys(Keys.ENTER)
-        return
-    #question_input.send_keys(msg)
-    browser.execute_script(JS_ADD_TEXT_TO_INPUT, question_input, msg)
-    WebDriverWait(browser, 30).until(EC.text_to_be_present_in_element((By.TAG_NAME, loc_textarea), msg))
-    question_input.send_keys(Keys.ENTER)
-
-def avito_try_login():
-    from CREDS import AVITO_USERNAME, AVITO_PASSWORD, AVITO_PROJECT_ID
-    try:
-        browser.execute_script(f'''window.open("{avito_url}","_blank");''')
-        WebDriverWait(browser, 10).until(EC.number_of_windows_to_be(2))
-        browser.switch_to.window(browser.window_handles[1])
-    except:
-        print("Probably AVITO window was blocked! Give permission!!!")
-        time.sleep(10)
-        browser.execute_script(f'''window.open("{avito_url}","_blank");''')
-        WebDriverWait(browser, 10).until(EC.number_of_windows_to_be(2))
-        browser.switch_to.window(browser.window_handles[1])
-
-    loc_login_btn = '.button'
-    loc_login_inputs = 'input'
-    loc_project_link = f"//a[contains(text(), '{AVITO_PROJECT_ID}')]"
-    login_btns = WebDriverWait(browser, 20).until(
-            EC.presence_of_all_elements_located((By.TAG_NAME, loc_login_inputs))
-        )
+def inference(model, dataloader):
+    all_oid = []
+    all_labels = []
+    label_prob = []
     
-    username_input = login_btns[0]; password_input = login_btns[1];
-    username_input.send_keys(AVITO_USERNAME)
-    password_input.send_keys(AVITO_PASSWORD)
+    # model.cuda()
+    model.eval()
+    with torch.no_grad():
+        for test_input, test_oid in tqdm(dataloader):
+            # test_oid = test_oid.cuda()
+            mask = test_input['attention_mask'] #.cuda()
+            input_id = test_input['input_ids'].squeeze(1) #.cuda()
+            output = model(input_id, mask)
+            all_oid.extend(test_oid)
+            all_labels.extend(torch.argmax(output[0].softmax(1), dim=1))
+            
+            for prob in output[0].softmax(1):
+                label_prob.append(prob)
+        return ([oid.item() for oid in all_oid], [CLASSES[labels] for labels in all_labels], label_prob)
 
-    time.sleep(1)
-    login_btn = WebDriverWait(browser, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, loc_login_btn))
-        )
-    login_btn.click()
+MODEL_NAME = "BertClassifier_last.pt"
+inference_model = torch.load(f'{MODEL_NAME}', map_location=torch.device('cpu'))
+avito_page.open()
+avito_page.login()
+avito_page.choose_project(791)
+### MAIN LOOP ###
 
-    project_link = WebDriverWait(browser, 10).until(
-        EC.presence_of_element_located((By.XPATH, loc_project_link))
-        )
-    project_link.click()
+def get_cur_disp(text):
+    MSG_MIN_LEN = 84
+    MSG_AVG_LEN = 986
+    MSG_MAX_LEN = 10212
+    MAX_DISP = 2.
+    MIN_DISP = 0.3
+    text_len = len(text)
+    res_disp = text_len / MSG_AVG_LEN
+    res_disp = min(res_disp, MAX_DISP)
+    res_disp = max(res_disp, MIN_DISP)
+    return res_disp
 
-def avito_get_question():
-    #First, check if message is ok -> we have question on project
-    loc_page_message = '.message'
-    message_text = WebDriverWait(browser, 30).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, loc_page_message))).text
-    if message_text == AVITO_NO_TASKS_MESSAGE:
-        print('NO TASKS CURRENTLY ARE AVAILABLE. QUITING :(')
-        browser.quit()
+def plus_or_minus():
+    if random.random() > 0.5:
+        return True  # Represents the outcome with a 0.5 chance
+    else:
+        return False
 
-    loc_prewrappers = '.wrapper_pre>pre'
-    loc_messages = '.row'
-    loc_buyer_messages = '.messages>.row:not(.seller)>.message.text'
-    loc_seller_messages = '.messages>.row.seller>.message.text'
+from datetime import datetime
+def save_model_predict_log(json_data, base_output_path="working\\model_predicts\\"):
+    current_date = datetime.now().strftime('%d-%m-%Y')
+    output_path = base_output_path + f"Predicts_{current_date}\\"
+    os.makedirs(output_path, exist_ok=True)
+    data_util.save_json(json_data, output_path + f"question_{json_data['oid']}_predict_log.json")
 
-    object_info = WebDriverWait(browser, 10).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_prewrappers))
-        )
-    # name, description = object_info[0].text, object_info[2].text
-    name, description = object_info[0].text, object_info[2].text
+SELECT_ANS_BASE_TIME = 7.
+data_util = DataUtil()
 
-    all_messages = buyer_messages = WebDriverWait(browser, 10).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_messages))
-        )
-
-    buyer_messages = WebDriverWait(browser, 10).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_buyer_messages))
-        )
-    seller_messages = WebDriverWait(browser, 10).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_seller_messages))
-        )
-
-    #'*Отправлен файл*'
-    # res_descr = 'Описание:\n'+name+'\n'+description+'\nКонец описания\n\n'
-    res_descr = name+'\nОписание:\n'+description
-    res_chat = 'Чат пользователей:\n'
-    i_buyer = 0; i_seller = 0;
-    for elem in all_messages:
-        if 'seller' in elem.get_attribute('class').split():
-            cur_msg = seller_messages[i_seller].text
-            i_seller += 1
-            if cur_msg == '*Отправлен файл*':
-                continue
-            res_chat += 'Продавец: ' + cur_msg +'\n'
+while True:
+    try: 
+        chat_info = avito_page.get_chat_info()
+    except:
+        if avito_page.tasks_ended()== True:
+            print(F"CHATS ENDED.")
+            #No tasks, exit or refresh page until tasks are here
+            break
         else:
-            cur_msg = buyer_messages[i_buyer].text
-            i_buyer += 1
-            if cur_msg == '*Отправлен файл*':
-                continue
-            res_chat += 'Покупатель: ' + cur_msg +'\n'
+            raise Exception(f"Couldn't get page info, unrecognized behaviour! Check Page!")
+    chat_info = data_util.clean_json(chat_info)
+    #check amount of msgs of buyer and seller
+    buyer_len, seller_len = 0, 0
+    for msg in chat_info['messages']:
+        if msg['from'] == 'buyer':
+            buyer_len += 1
+        else:
+            seller_len += 1
+    if buyer_len == 0 or seller_len == 0:
+        print(f"No Message from one side, choosing '{CLASSES[2]}'")
+        avito_page.click_answer(CLASSES[2])
+    else:
+        data_util.jsons_to_csv("working\\cur_question.csv", input_jsons=[chat_info], input_folder=None,
+                            test=True)
+        cur_question_csv = pd.read_csv('working\\cur_question.csv')
+        test_dataset = CustomDataset(cur_question_csv, tokenizer, phase='test')
+        test_dataloader = DataLoader(test_dataset, batch_size=1)
+        inference_result = inference(inference_model, test_dataloader)
 
-    if len(res_descr+res_chat) > GPT_MSG_MAX_LEN:
-        print("Too long message detected. Message is cut to needed size!")
-        amount_to_delete = len(res_descr+res_chat) - GPT_MSG_MAX_LEN
-        res_descr = res_descr[:len(res_descr)-amount_to_delete]
-    res_descr += '\nКонец описания\n\n'
-    res_chat += 'Конец чата\n\nВыбери нужный ответ, учитывая инструкцию:\n1) Да\n2) Нет\n3) Чат неинформативный\nВ ответе напиши только цифру'
-    return res_descr + res_chat
+        oid = [i for i in inference_result[0]]
+        labels = [i for i in inference_result[1]]
+        prob = [i for i in inference_result[2]]
 
-def avito_get_question_ramis():
-    #First, check if message is ok -> we have question on project
-    loc_page_message = '.message'
-    message_text = WebDriverWait(browser, 30).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, loc_page_message))).text
-    if message_text == AVITO_NO_TASKS_MESSAGE:
-        print('NO TASKS CURRENTLY ARE AVAILABLE. QUITING :(')
-        browser.quit()
+        oid = oid[0]
+        label = labels[0]
+        print("MODEL PREDICT:", oid, label)
+        # correct_label = int(input("Input correct label:"))
+        # correct_label = CLASSES[correct_label]
 
-    loc_prewrappers = '.wrapper_pre>pre'
-    loc_messages = 'main>div>:nth-child(2)>:nth-child(3)>div>:nth-child(14)>div>div>*>pre'
+        # Wait time
+        cur_disp = get_cur_disp(cur_question_csv['text'][0])
+        cur_select_ans_random_time = random.uniform(0., cur_disp)
+        cur_select_ans_random_time = cur_select_ans_random_time if plus_or_minus() else -cur_select_ans_random_time
+        cur_select_ans_time = SELECT_ANS_BASE_TIME*cur_disp + cur_select_ans_random_time
 
-    object_info = WebDriverWait(browser, 10).until(
-        EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_prewrappers))
-    )
-    # name, description = object_info[0].text, object_info[2].text
-    price, description = object_info[1].text, object_info[2].text
+        print(f"Time random wait: dispersion = {cur_disp}, random wait time = {cur_select_ans_time}")
+        chat_info["predict_info"] = {}
+        chat_info["predict_info"]["predict_label"] = label
+        # chat_info["predict_info"]["correct_label"] = correct_label
+        now_datetime = datetime.now().strftime('%d-%m-%Y, %H:%M:%S')
+        chat_info["predict_info"]["predict_time"] = now_datetime
+        chat_info["predict_info"]["random_wait"] = cur_select_ans_time
+        with open('wait_times.txt', 'a+') as file:
+            file.write(f'{now_datetime} {oid} {cur_select_ans_time}\n')
+        save_model_predict_log(chat_info)
 
-    all_messages_doubles = buyer_messages = WebDriverWait(browser, 10).until(
-        EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_messages))
-    )
-
-    res_descr = 'Цена:\n'+price+'\nОписание:\n'+description+'\nКонец описания\n\n'
-    res_chat = 'Чат пользователей:\n'
-    for i in range(0, len(all_messages_doubles), 2):
-        first, second = all_messages_doubles[i].text, all_messages_doubles[i+1].text
-        if first != '': #buyer message
-            if first == '*Отправлен файл*':
-                continue
-            res_chat += 'Покупатель: ' + first + '\n'
-        else: #Seller message
-            if first == '*Отправлен файл*':
-                continue
-            res_chat += 'Продавец: ' + second + '\n' 
-    res_chat += 'Конец чата\n\nВыбери ответ, учитывая инструкцию:\nДа - 1\nНет - 2\nЧат неинформативный - 3\nВ ответе напиши только цифру!'
-    print(res_descr+res_chat)
-    return res_descr + res_chat
-
-def avito_select_and_send_answer(answer_num):
-    loc_answer_options = '.answer'
-    loc_send_answer_button = 'button'
-    object_info = WebDriverWait(browser, 10).until(
-        EC.presence_of_all_elements_located((By.CSS_SELECTOR, loc_answer_options))
-    )
-    object_info[answer_num].click()
-    send_answer_button = WebDriverWait(browser, 10).until(
-        EC.presence_of_element_located((By.CLASS_NAME, loc_send_answer_button))
-    )
-    send_answer_button.click()
-
-def page_scroll_to_element(element):
-    browser.execute_script("arguments[0].scrollIntoView();", element)
-
-def chatGPT_edit_last_message(msg):
-    loc_edit_message = '.self-end button'
-    loc_edit_textarea = 'textarea'
-    loc_edit_submit_btn = '.btn-primary'
-
-    loc_scroll_elem = '.items-center.flex-col>:nth-child(2)'
-
-    loc_edit_btn = '.items-center.text-sm>:nth-child(3)>div>:nth-child(2)>:nth-child(2)>button'
-
-    print('fun1')
-    edit_btn_loc = WebDriverWait(browser, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, loc_edit_btn))
-    )
-
-    scroll_elem = edit_btn_loc = WebDriverWait(browser, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, loc_scroll_elem))
-    )
-
-    print("SCROLLING")
-    page_scroll_to_element(scroll_elem)
-    edit_btn_loc = WebDriverWait(browser, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, loc_edit_btn))
-    )
+        time.sleep(cur_select_ans_time)
+        avito_page.click_answer(label)
+        avito_page.click_submit_btn()
+        avito_page.wait_next_question_load(int(oid))
     
-    print(edit_btn_loc.location, edit_btn_loc.is_enabled(), edit_btn_loc.is_displayed(),
-          edit_btn_loc.get_attribute('class'))
-    
-    action.move_to_element(edit_btn_loc).perform()
-    #action.move_by_offset(edit_btn_loc.location['x'], edit_btn_loc.location['y']).perform()
-    print("MOVED TO!")
+    # detached_prob = []
+    # for i in prob:
+    #     detached_prob.append(i.cpu().numpy())
 
-    edit_btn_loc = WebDriverWait(browser, 10).until(
-        EC.visibility_of_element_located((By.CSS_SELECTOR, loc_edit_btn))
-    )
+    # data = {'oid':oid, 'category':labels, 'probs':detached_prob}
+    # submit = pd.DataFrame(data)
+    # submit['label_int'] = submit['category'].apply(lambda x: CLASSES.index(x))
 
-    edit_btn_loc.click()
-    print('fun2')   
-    browser_wait_all_elements_located(By_Type=By.TAG_NAME, locator=loc_edit_textarea, amount_of_elements_to_wait=2)
-    all_textareas = WebDriverWait(browser, 10).until(
-        EC.presence_of_all_elements_located((By.TAG_NAME, loc_edit_textarea))
-    )
-    print('fun3')
-    edit_last_msg_textarea = all_textareas[0]
-    chatGPT_ask_ramis(msg, text_area_element=edit_last_msg_textarea, mutliline=True)
-    print('fun4')
-    edit_submit_btn = WebDriverWait(browser, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, loc_edit_submit_btn))
-    )
-    print('fun5')
-    edit_submit_btn.click()
+    # label_int = submit['label_int'].to_list()
+    # probs = submit['probs'].to_list()
+    # res = []
+    # for indx, tensor in enumerate(probs):
 
-def chatGPT_regenerate_last_response():
-    loc_stop_generating_btn = '.btn'
-    regenerate_response_btn = WebDriverWait(browser, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, loc_stop_generating_btn))
-    )
-    regenerate_response_btn.click()
-    return chatGPT_wait_for_answer(2, return_ans=True)
+    #     res.append(tensor[label_int[indx]])
+    # submit['prob'] = res
+    # del submit['probs'], submit['label_int']
+    # tmp_submit = pd.DataFrame(submit.groupby(by=['oid', 'category']).sum().reset_index())
 
-def chatGPT_parse_response(msg):
-    ans = None
-    words = msg.split()
-    for word in words:
-        if word.isdigit() and 0<int(word)<4:
-            return int(word)
-        word = word.lower()
-        if word in RESPONSE_WORD_TO_NUM:
-            return RESPONSE_WORD_TO_NUM[word]
-    return ans
+    # oid = tmp_submit['oid'].to_list()
+    # category = tmp_submit['category'].to_list()
+    # prob = tmp_submit['prob'].to_list()
 
-from CREDS import GPT_RULES_TEXT, AVITO_NO_TASKS_MESSAGE
-browser.get(chatGPT_url)
-try:
-    if chatGPT_page_ready_to_be_asked():
-        chatGPT_ask_ramis(GPT_RULES_TEXT)
-        chatGPT_wait_for_answer(1, return_ans=False)
-    #This fun creates new tab and switches to it
-    avito_try_login()
-    cur_question = avito_get_question_ramis()
-    browser.switch_to.window(browser.window_handles[0])
-    if chatGPT_page_ready_to_be_asked():
-        chatGPT_ask_ramis(cur_question)
-    chatGPT_last_response = chatGPT_wait_for_answer(2, return_ans=True).text
-    chatGPT_ans_parsed = chatGPT_parse_response(chatGPT_last_response)
-    while chatGPT_ans_parsed is None:
-        #Regenerate response!!!
-        chatGPT_last_response = chatGPT_regenerate_last_response()
-        chatGPT_ans_parsed = chatGPT_parse_response(chatGPT_last_response)
-    print("RESPONSE", chatGPT_last_response, "RES:", chatGPT_ans_parsed)
-    browser.switch_to.window(browser.window_handles[1])
-    #avito_select_and_send_answer(chatGPT_resolution)
-    while input().lower() == 'next':
-        cur_question = avito_get_question_ramis()
-        browser.switch_to.window(browser.window_handles[0])
-        chatGPT_edit_last_message(cur_question)
-        chatGPT_resolution = int(chatGPT_wait_for_answer(total_answers=2, return_ans=True).text)
-        browser.switch_to.window(browser.window_handles[1])
-except:
-    raise Exception("Some error raised!")
-finally:
-    # ожидание чтобы визуально оценить результаты прохождения скрипта
-    time.sleep(10)
-    # закрываем браузер после всех манипуляций
-    browser.quit()
+    # res = {}
+    # for indx, id in enumerate(oid):
+    #     if id not in res:
+    #         res[id] = (category[indx], prob[indx])
+            
+    # submit_data = {k:v[0] for k,v in res.items()}
+    # oid = list(submit_data.keys())
+    # category = list(submit_data.values())
+    # pd.DataFrame({'oid':oid, 'category':category}).to_csv('submission.csv', index=False,  encoding='utf-8-sig')
+
+#END
+time.sleep(3)
+browser.quit()

@@ -1,7 +1,11 @@
-CREDS*
-selenium-env/
-_pycache_/
-coverage/
-block*
-tst.py
+avito_creds.py
+
+__pycache__
+working
+wait_times.*
+
+*test*.py
 *.json
+
+*.pt
+!BertClassifier_last.pt
