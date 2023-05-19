@@ -55,7 +55,7 @@ class AvitoProjectPage(AvitoPage):
     
     def wait_next_question_load(self, last_question_number):
         num_replaced = self._question_num_loc[1].replace("<NUMBER_REPLACE>", str(last_question_number+1))
-        elem = WebDriverWait(self.browser, 10).until(
+        elem = WebDriverWait(self.browser, 60).until(
             EC.presence_of_element_located((self._question_num_loc[0], num_replaced))
         )
         return elem is not None

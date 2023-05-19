@@ -96,7 +96,7 @@ def get_cur_disp(text):
     MSG_AVG_LEN = 986
     MSG_MAX_LEN = 10212
     MAX_DISP = 2.
-    MIN_DISP = 0.3
+    MIN_DISP = 0.4
     text_len = len(text)
     res_disp = text_len / MSG_AVG_LEN
     res_disp = min(res_disp, MAX_DISP)
@@ -116,7 +116,7 @@ def save_model_predict_log(json_data, base_output_path="working\\model_predicts\
     os.makedirs(output_path, exist_ok=True)
     data_util.save_json(json_data, output_path + f"question_{json_data['oid']}_predict_log.json")
 
-SELECT_ANS_BASE_TIME = 7.
+SELECT_ANS_BASE_TIME = 10.
 data_util = DataUtil()
 
 while True:
@@ -137,9 +137,11 @@ while True:
             buyer_len += 1
         else:
             seller_len += 1
+
+    label = None
     if buyer_len == 0 or seller_len == 0:
         print(f"No Message from one side, choosing '{CLASSES[2]}'")
-        avito_page.click_answer(CLASSES[2])
+        label = CLASSES[2]
     else:
         data_util.jsons_to_csv("working\\cur_question.csv", input_jsons=[chat_info], input_folder=None,
                             test=True)
@@ -158,59 +160,35 @@ while True:
         # correct_label = int(input("Input correct label:"))
         # correct_label = CLASSES[correct_label]
 
-        # Wait time
-        cur_disp = get_cur_disp(cur_question_csv['text'][0])
-        cur_select_ans_random_time = random.uniform(0., cur_disp)
-        cur_select_ans_random_time = cur_select_ans_random_time if plus_or_minus() else -cur_select_ans_random_time
-        cur_select_ans_time = SELECT_ANS_BASE_TIME*cur_disp + cur_select_ans_random_time
+    # Wait time
+    cur_disp = get_cur_disp(cur_question_csv['text'][0])
+    cur_select_ans_random_time = random.uniform(0., cur_disp)
+    cur_select_ans_random_time = cur_select_ans_random_time if plus_or_minus() else -cur_select_ans_random_time
+    cur_select_ans_time = SELECT_ANS_BASE_TIME*cur_disp + cur_select_ans_random_time
 
-        print(f"Time random wait: dispersion = {cur_disp}, random wait time = {cur_select_ans_time}")
-        chat_info["predict_info"] = {}
-        chat_info["predict_info"]["predict_label"] = label
-        # chat_info["predict_info"]["correct_label"] = correct_label
-        now_datetime = datetime.now().strftime('%d-%m-%Y, %H:%M:%S')
-        chat_info["predict_info"]["predict_time"] = now_datetime
-        chat_info["predict_info"]["random_wait"] = cur_select_ans_time
-        with open('wait_times.txt', 'a+') as file:
-            file.write(f'{now_datetime} {oid} {cur_select_ans_time}\n')
-        save_model_predict_log(chat_info)
+    print(f"Time random wait: dispersion = {cur_disp}, random wait time = {cur_select_ans_time}")
+    chat_info["predict_info"] = {}
+    chat_info["predict_info"]["predict_label"] = label
+    # chat_info["predict_info"]["correct_label"] = correct_label
+    now_datetime = datetime.now().strftime('%d-%m-%Y, %H:%M:%S')
+    chat_info["predict_info"]["predict_time"] = now_datetime
+    chat_info["predict_info"]["random_wait"] = cur_select_ans_time
+    with open('wait_times.txt', 'a+') as file:
+        file.write(f'{now_datetime} {oid} {cur_select_ans_time}\n')
+    save_model_predict_log(chat_info)
 
-        time.sleep(cur_select_ans_time)
-        avito_page.click_answer(label)
-        avito_page.click_submit_btn()
-        avito_page.wait_next_question_load(int(oid))
-    
-    # detached_prob = []
-    # for i in prob:
-    #     detached_prob.append(i.cpu().numpy())
-
-    # data = {'oid':oid, 'category':labels, 'probs':detached_prob}
-    # submit = pd.DataFrame(data)
-    # submit['label_int'] = submit['category'].apply(lambda x: CLASSES.index(x))
-
-    # label_int = submit['label_int'].to_list()
-    # probs = submit['probs'].to_list()
-    # res = []
-    # for indx, tensor in enumerate(probs):
-
-    #     res.append(tensor[label_int[indx]])
-    # submit['prob'] = res
-    # del submit['probs'], submit['label_int']
-    # tmp_submit = pd.DataFrame(submit.groupby(by=['oid', 'category']).sum().reset_index())
-
-    # oid = tmp_submit['oid'].to_list()
-    # category = tmp_submit['category'].to_list()
-    # prob = tmp_submit['prob'].to_list()
-
-    # res = {}
-    # for indx, id in enumerate(oid):
-    #     if id not in res:
-    #         res[id] = (category[indx], prob[indx])
-            
-    # submit_data = {k:v[0] for k,v in res.items()}
-    # oid = list(submit_data.keys())
-    # category = list(submit_data.values())
-    # pd.DataFrame({'oid':oid, 'category':category}).to_csv('submission.csv', index=False,  encoding='utf-8-sig')
+    time.sleep(cur_select_ans_time)
+    avito_page.click_answer(label)
+    time.sleep(0.5)
+    avito_page.click_submit_btn()
+    try:
+        avito_page.wait_next_question_load(int(chat_info["oid"]))
+        #TODO: WAIT FOR SUBMIT BUTTON TO DISAPPEAR IMMIDEATELY, IF NOT = "SOME ERROR MSG" APPEARED
+    except:
+        screen_save_path = f"working\\crash_screenshots\\crash_{chat_info['oid']}_{datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}.png"
+        print(f"Some error occured, saving screen to {screen_save_path}")
+        browser.save_screenshot(screen_save_path)
+        break
 
 #END
 time.sleep(3)
