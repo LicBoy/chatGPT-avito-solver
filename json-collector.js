@@ -56,44 +56,48 @@ function downloadJSON(json, filename) {
    URL.revokeObjectURL(url);
 }
 
+function download_json_from_click(targetNode) {
+    const quest_counter = targetNode.innerText;
+    console.log("Mutation observing:", quest_counter);
+
+    const que_number = parseInt(quest_counter.split(' ')[2]);
+
+    const elements = document.evaluate('//div[@class="answer"]', document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+    for (let i = 0; i < elements.snapshotLength; i++) {
+        const element = elements.snapshotItem(i);
+        element.addEventListener('click', () => {
+            const textNodes = Array.from(element.childNodes).filter(node => node.nodeType === Node.TEXT_NODE);
+            const textContent = cleanString(textNodes.map(node => node.textContent.trim()).join(' '));
+
+            const res_json = get_json();
+            res_json.answers.correct = textContent;
+            if (textContent == 'Да') {
+                let opt_msg = document.evaluate("//div[@class='text']", document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                opt_msg = cleanString(opt_msg.snapshotItem(0).textContent);
+                if (opt_msg != '')
+                    res_json.answers.correct = {correct: res_json.answers.correct, opt_msg: opt_msg};
+            }
+            const today = new Date();
+            const day = String(today.getDate()).padStart(2, '0');
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+
+            const file_name = `question_${que_number}_${day}_${month}.json`;
+            res_json.oid = String(que_number)
+            downloadJSON(res_json, file_name);
+            console.log(`Question ${que_number}. Answer: ${textContent}. Built JSON and download file ${file_name}.`);
+        });
+    }
+}
+
 const targetNode = document.querySelector('.progress_bar > * > *');
 const config = { characterData: true, attributes: false, childList: false, subtree: true }
 
 const callback = mutations => {
     mutations.forEach(mutation => {
-        const quest_counter = targetNode.innerText;
-        console.log("Mutation observing:", quest_counter);
-
-        const que_number = parseInt(quest_counter.split(' ')[2]);
-
-        const elements = document.evaluate('//div[@class="answer"]', document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-        for (let i = 0; i < elements.snapshotLength; i++) {
-            const element = elements.snapshotItem(i);
-            element.addEventListener('click', () => {
-                const textNodes = Array.from(element.childNodes).filter(node => node.nodeType === Node.TEXT_NODE);
-                const textContent = cleanString(textNodes.map(node => node.textContent.trim()).join(' '));
-
-                const res_json = get_json();
-                res_json.answers.correct = textContent;
-                if (textContent == 'Да') {
-                    let opt_msg = document.evaluate("//div[@class='text']", document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-                    opt_msg = cleanString(opt_msg.snapshotItem(0).textContent);
-                    if (opt_msg != '')
-                        res_json.answers.correct = {correct: res_json.answers.correct, opt_msg: opt_msg};
-                }
-                const today = new Date();
-                const day = String(today.getDate()).padStart(2, '0');
-                const month = String(today.getMonth() + 1).padStart(2, '0');
-
-                const file_name = `question_${que_number}_${day}_${month}.json`;
-                res_json.oid = String(que_number)
-                downloadJSON(res_json, file_name);
-                console.log(`Question ${que_number}. Answer: ${textContent}. Built JSON and download file ${file_name}.`);
-            });
-        }
+        download_json_from_click(targetNode)
     });
 }
 
 const observer = new MutationObserver(callback);
-
 observer.observe(targetNode, config);
+download_json_from_click(targetNode)
