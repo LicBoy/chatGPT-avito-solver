@@ -127,5 +127,7 @@ class AvitoProjectPage(AvitoPage):
         return tasks_ended_element is not None and len(self.browser.find_elements(self._msg_text_loc[0],
             self._msg_text_loc[1])) == 0
 
-    def some_error(self):
-        pass
+    def some_error_msg_appeared(self):
+        some_error_element = self.browser.find_elements(self._some_error_msg_loc[0],
+                                                    self._some_error_msg_loc[1])
+        return len(some_error_element) > 0

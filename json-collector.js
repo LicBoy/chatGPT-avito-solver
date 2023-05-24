@@ -14,6 +14,7 @@ function cleanString(str) {
 function get_json() {
     let json = {
         ad_name: cleanString(document.evaluate('//div[@class="wrapper_pre"][1]//pre', document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null).snapshotItem(0).textContent),
+        ad_price : cleanString(document.evaluate('//div[@class="wrapper_pre"][2]//pre', document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null).snapshotItem(0).textContent),
         ad_descr: cleanString(document.evaluate('//div[@class="wrapper_pre"][3]//pre', document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null).snapshotItem(0).textContent),
         messages: [],
         answers: {

@@ -3,7 +3,7 @@ import pandas as pd
 
 class DataUtil():
     ascii_codes_regex = r"\\[a-zA-Z0-9]{5}"
-    legal_chars_regex = r'[^\w\s\u0400-\u04FF\u0020\r\n.,?()%-=:;"`'']'
+    legal_chars_regex = r"[^-\w\s\u0400-\u04FF\u0020\r\n.,!?()%$@+=:;`'\"]"
 
     def save_json(self, data, save_path):
         with open(save_path, 'w+', encoding='utf-8') as file:
@@ -46,9 +46,10 @@ class DataUtil():
 
     def filter_text(self, text):
         filtered_text = re.sub(self.ascii_codes_regex, "", text)
-        filtered_text = re.sub(self.legal_chars_regex, '', filtered_text)
+        filtered_text = re.sub(self.legal_chars_regex, "", filtered_text)
         return filtered_text.strip()
     
+    #TODO: DON'T COPY FILES WHICH ARE ALREADY IN FOLDER = INCREASE SPEED
     def move_jsons_to_folder(self, input_folder, output_folder, clean_jsons=True, copy=False):
         if input_folder == "C:\\Users\\user\\Downloads\\chats" and copy == False:
             raise Exception(f"Trying to Cut Files from {input_folder}! Can't lose base questions dataset!")
@@ -109,16 +110,49 @@ class DataUtil():
         ad_name = json["ad_name"]
         ad_descr = json["ad_descr"]
         messages = json.get("messages", [])
-        text = f'Описание: {ad_name} {ad_descr}|'
+        text = f'Описание: {ad_name} {ad_descr} |'
         text += " Чат: "
         for message in messages:
             msg_from = 'Продавец' if message["from"] == 'seller' else 'Покупатель'
             text += f'{msg_from}: {message["msg"]}; '
+
+        text = self.fix_many_tokens(oid, text, ad_name)
         if test:
             return [oid, text]
         else:
             category = json["answers"]["correct"] if "correct" not in json["answers"]["correct"] else json["answers"]["correct"]["correct"]
             return [oid, category, text]
+
+    # 2048 for rubert-tiny2, 512 for rubert-tiny
+    def fix_many_tokens(self, oid:str, text: str, ad_name:str, max_tokens:int=2048):
+        max_tokens -= 2 # 2 tokens are used for start and end of text
+        text_words = text.split(' ')
+        if len(text_words) > max_tokens:
+            print(f"{oid} Text is too long (more than {max_tokens} tokens!). Reduce it.")
+            words_remove_amount =  len(text_words) - max_tokens
+            ad_name_len = len(ad_name.split(' '))+1 #+1 because of "Описание:"
+            index_of_chat_start = text_words.index('Чат:')
+
+            if (index_of_chat_start-ad_name_len) > words_remove_amount:
+                del text_words[ad_name_len:ad_name_len+words_remove_amount]
+            else:
+                words_remove_amount -= (index_of_chat_start-ad_name_len)
+                last_actor_msg_index = text_words.index('Чат:')+1
+                cur_actor_msg_index = last_actor_msg_index + 2
+                
+                for i in range(cur_actor_msg_index, len(text_words)):
+                    if i == len(text_words)-1: 
+                        #Text is TOOOO LONG! Can't cut to {max_tokens} amount!
+                        raise Exception(f"Chat {oid}: #Text is TOOOO LONG! Can't cut to {max_tokens} amount!")
+                    if text_words[i] in ['Продавец', 'Покупатель']:
+                        last_actor_msg_index = cur_actor_msg_index
+                        cur_actor_msg_index = i
+
+                        words_remove_amount -= (cur_actor_msg_index - last_actor_msg_index)
+                        if words_remove_amount < 0:
+                            break
+                del text_words[text_words.index('Чат:')+1:ad_name_len+cur_actor_msg_index+1]          
+        return text
 
     def update_csv_with_labels(self, preds_csv, json_folder):
         def get_correct_answer(json_file_path):
@@ -126,7 +160,7 @@ class DataUtil():
             return data['answers']['correct'] if "correct" not in data['answers']['correct'] else data['answers']['correct']["correct"]
 
         df = pd.read_csv(preds_csv)
-        df['label'] = ''
+        df['correct'] = ''
         for index, row in df.iterrows():
             oid = row['oid']
             json_files = [filename for filename in os.listdir(json_folder) if (filename.startswith(f"question_{oid}") and filename.endswith(".json"))]
@@ -136,5 +170,18 @@ class DataUtil():
                 json_file_path = os.path.join(json_folder, json_file_name)
 
                 correct_answer = get_correct_answer(json_file_path)
-                df.at[index, 'label'] = correct_answer
+                df.at[index, 'correct'] = correct_answer
         df.to_csv(preds_csv, index=False, encoding='utf-8-sig')
+
+    def count_correct_preds(self, csv_path='preds.csv', preds_col='predict', targets_col='correct'):
+        df = pd.read_csv(csv_path)
+
+        filtered_df = df[df[preds_col] != df[targets_col]]
+        # Get the 'oid' values from the filtered rows
+        oid_values = filtered_df['oid'].tolist()
+        print(f"Wrong predictions:", oid_values)
+
+        correct_predictions = (df[preds_col] == df[targets_col]).sum()
+        total_predictions = len(df)
+        percent_correct = (correct_predictions / total_predictions) * 100
+        return (percent_correct, correct_predictions)

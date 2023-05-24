@@ -84,7 +84,7 @@ def inference(model, dataloader):
                 label_prob.append(prob)
         return ([oid.item() for oid in all_oid], [CLASSES[labels] for labels in all_labels], label_prob)
 
-MODEL_NAME = "BertClassifier_last.pt"
+MODEL_NAME = "BertClassifier_2048tokens_last.pt"
 inference_model = torch.load(f'{MODEL_NAME}', map_location=torch.device('cpu'))
 avito_page.open()
 avito_page.login()
@@ -95,8 +95,8 @@ def get_cur_disp(text):
     MSG_MIN_LEN = 84
     MSG_AVG_LEN = 986
     MSG_MAX_LEN = 10212
-    MAX_DISP = 2.
-    MIN_DISP = 0.4
+    MAX_DISP = 2.5
+    MIN_DISP = 0.6
     text_len = len(text)
     res_disp = text_len / MSG_AVG_LEN
     res_disp = min(res_disp, MAX_DISP)
@@ -181,14 +181,20 @@ while True:
     avito_page.click_answer(label)
     time.sleep(0.5)
     avito_page.click_submit_btn()
-    try:
-        avito_page.wait_next_question_load(int(chat_info["oid"]))
-        #TODO: WAIT FOR SUBMIT BUTTON TO DISAPPEAR IMMIDEATELY, IF NOT = "SOME ERROR MSG" APPEARED
-    except:
-        screen_save_path = f"working\\crash_screenshots\\crash_{chat_info['oid']}_{datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}.png"
-        print(f"Some error occured, saving screen to {screen_save_path}")
-        browser.save_screenshot(screen_save_path)
-        break
+
+    #Look for "SomeError" msg, if appeared, try to resubmit button
+    while avito_page.some_error_msg_appeared():
+        print(f"'Some Error' Appeared, trying to choose answer again...")
+        time.sleep(10)
+        browser.refresh()
+        if chat_info["oid"] == avito_page.get_question_number():
+            avito_page.click_answer(label)
+            avito_page.click_submit_btn()     
+    avito_page.wait_next_question_load(int(chat_info["oid"]))
+    # screen_save_path = f"working\\crash_screenshots\\crash_{chat_info['oid']}_{datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}.png"
+    # print(f"Some error occured, saving screen to {screen_save_path}")
+    # browser.save_screenshot(screen_save_path)
+    # break
 
 #END
 time.sleep(3)

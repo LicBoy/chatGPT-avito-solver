@@ -18,7 +18,7 @@ class CustomDataset(torch.utils.data.Dataset):
         self.phase = phase
         
         if self.phase == 'train':
-            self.labels = [labels[label] for label in df['category']]
+            self.labels = [labels[label] for label in df['predict']]
         elif self.phase == 'test':
             self.oid = [oid for oid in df['oid']]
             
@@ -93,9 +93,9 @@ detached_prob = []
 for i in prob:
     detached_prob.append(i.cpu().numpy())
 
-data = {'oid':oid, 'category':labels, 'probs':detached_prob}
+data = {'oid':oid, 'predict':labels, 'probs':detached_prob}
 submit = pd.DataFrame(data)
-submit['label_int'] = submit['category'].apply(lambda x: CLASSES.index(x))
+submit['label_int'] = submit['predict'].apply(lambda x: CLASSES.index(x))
 
 label_int = submit['label_int'].to_list()
 probs = submit['probs'].to_list()
@@ -105,18 +105,18 @@ for indx, tensor in enumerate(probs):
     res.append(tensor[label_int[indx]])
 submit['prob'] = res
 del submit['probs'], submit['label_int']
-tmp_submit = pd.DataFrame(submit.groupby(by=['oid', 'category']).sum().reset_index())
+tmp_submit = pd.DataFrame(submit.groupby(by=['oid', 'predict']).sum().reset_index())
 
 oid = tmp_submit['oid'].to_list()
-category = tmp_submit['category'].to_list()
+predict = tmp_submit['predict'].to_list()
 prob = tmp_submit['prob'].to_list()
 
 res = {}
 for indx, id in enumerate(oid):
     if id not in res:
-        res[id] = (category[indx], prob[indx])
+        res[id] = (predict[indx], prob[indx])
         
 submit_data = {k:v[0] for k,v in res.items()}
 oid = list(submit_data.keys())
-category = list(submit_data.values())
-pd.DataFrame({'oid':oid, 'category':category}).to_csv('submission.csv', index=False,  encoding='utf-8-sig')
+predict = list(submit_data.values())
+pd.DataFrame({'oid':oid, 'predict':predict}).to_csv('submission.csv', index=False,  encoding='utf-8-sig')
