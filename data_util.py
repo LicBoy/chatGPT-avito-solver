@@ -49,8 +49,7 @@ class DataUtil():
         filtered_text = re.sub(self.legal_chars_regex, "", filtered_text)
         return filtered_text.strip()
     
-    #TODO: DON'T COPY FILES WHICH ARE ALREADY IN FOLDER = INCREASE SPEED
-    def move_jsons_to_folder(self, input_folder, output_folder, clean_jsons=True, copy=False):
+    def move_jsons_to_folder(self, input_folder, output_folder, clean_jsons=True, copy=True):
         if input_folder == "C:\\Users\\user\\Downloads\\chats" and copy == False:
             raise Exception(f"Trying to Cut Files from {input_folder}! Can't lose base questions dataset!")
         if input_folder == output_folder and copy == False:
@@ -63,6 +62,8 @@ class DataUtil():
             if clean_jsons == True:
                 json_data = self.clean_json(json_data)
             save_path = os.path.join(output_folder, os.path.basename(input_file))
+            if os.path.exists(save_path): #File already exists in output folder
+                continue
             self.save_json(json_data, save_path)
             if copy == False:
                 os.remove(input_file)
@@ -143,6 +144,7 @@ class DataUtil():
                 for i in range(cur_actor_msg_index, len(text_words)):
                     if i == len(text_words)-1: 
                         #Text is TOOOO LONG! Can't cut to {max_tokens} amount!
+                        self.save_json({"text" : text}, f"working\\crash_2048tokens\\question_{oid}_text.json")
                         raise Exception(f"Chat {oid}: #Text is TOOOO LONG! Can't cut to {max_tokens} amount!")
                     if text_words[i] in ['Продавец', 'Покупатель']:
                         last_actor_msg_index = cur_actor_msg_index

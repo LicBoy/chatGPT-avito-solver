@@ -84,7 +84,7 @@ def inference(model, dataloader):
                 label_prob.append(prob)
         return ([oid.item() for oid in all_oid], [CLASSES[labels] for labels in all_labels], label_prob)
 
-MODEL_NAME = "BertClassifier_2048tokens_last.pt"
+MODEL_NAME = "BertClassifier_last.pt"
 inference_model = torch.load(f'{MODEL_NAME}', map_location=torch.device('cpu'))
 avito_page.open()
 avito_page.login()
@@ -116,7 +116,7 @@ def save_model_predict_log(json_data, base_output_path="working\\model_predicts\
     os.makedirs(output_path, exist_ok=True)
     data_util.save_json(json_data, output_path + f"question_{json_data['oid']}_predict_log.json")
 
-SELECT_ANS_BASE_TIME = 10.
+SELECT_ANS_BASE_TIME = 15
 data_util = DataUtil()
 
 while True:
