@@ -106,55 +106,90 @@ class DataUtil():
                     writer.writerow(cur_row)
                 
 
-    def json_to_csv_row(self, json, test=False):
+    def json_to_csv_row(self, json: dict, test: bool=False):
         oid = json["oid"]
         ad_name = json["ad_name"]
         ad_descr = json["ad_descr"]
         messages = json.get("messages", [])
-        text = f'Описание: {ad_name} {ad_descr} |'
-        text += " Чат: "
+        category = None
+        if "answers" in json:
+            category = json["answers"]["correct"] if "correct" not in json["answers"]["correct"] else json["answers"]["correct"]["correct"]
+
+        text_start_pattern = 'Описание: <AD_NAME> <AD_DESCR> | Чат:'
+        fixed_json = self.fix_many_tokens(oid, text_start_pattern, ad_name, ad_descr, messages)
+        ad_name = fixed_json["ad_name"]
+        ad_descr = fixed_json["ad_descr"]
+        if ad_descr == '' or ad_descr is None:
+            text_start_pattern = 'Описание: <AD_NAME> | Чат:'
+        messages = fixed_json.get("messages", [])
+        text = text_start_pattern.replace('<AD_NAME>', ad_name).replace('<AD_DESCR>', ad_descr)
         for message in messages:
             msg_from = 'Продавец' if message["from"] == 'seller' else 'Покупатель'
-            text += f'{msg_from}: {message["msg"]}; '
-
-        text = self.fix_many_tokens(oid, text, ad_name)
+            text += f' {msg_from}: {message["msg"]};'
         if test:
             return [oid, text]
         else:
-            category = json["answers"]["correct"] if "correct" not in json["answers"]["correct"] else json["answers"]["correct"]["correct"]
             return [oid, category, text]
 
     # 2048 for rubert-tiny2, 512 for rubert-tiny
-    def fix_many_tokens(self, oid:str, text: str, ad_name:str, max_tokens:int=2048):
+    def fix_many_tokens(self, 
+            oid: str, text_pattern: str, ad_name: str, ad_descr: str, msgs: list, 
+            descr_to_msg_remove_ratio : tuple[int, int]=(3, 1), 
+            max_tokens: int=2048):
+        def count_full_text_len(text_pattern: str, ad_name: str, ad_descr: str, msgs: list[dict]):
+            if text_pattern.count('<') != text_pattern.count('>'):
+                raise Exception(f'Not equal amount of <> in text pattern!')
+            start_text_len = len(text_pattern.split(' ')) - text_pattern.count('<') + len(ad_name.split(' ')) + len(ad_descr.split(' '))
+            ad_msgs_len = 0
+            for msg in msgs:
+                msg = msg['msg']
+                msg_len = len(msg.split(' '))
+                ad_msgs_len += msg_len + 1 # + 'Buyer:' or 'Seller:'
+            return start_text_len + ad_msgs_len
+
         max_tokens -= 2 # 2 tokens are used for start and end of text
-        text_words = text.split(' ')
-        if len(text_words) > max_tokens:
-            print(f"{oid} Text is too long (more than {max_tokens} tokens!). Reduce it.")
-            words_remove_amount =  len(text_words) - max_tokens
-            ad_name_len = len(ad_name.split(' '))+1 #+1 because of "Описание:"
-            index_of_chat_start = text_words.index('Чат:')
+        text_token_amount = count_full_text_len(text_pattern, ad_name, ad_descr, msgs)
+        if text_token_amount > max_tokens:
+            print(f'Chat {oid}: Got {text_token_amount}, when max token amount={max_tokens}. Reducing text.')
+            descr_remove_ratio = descr_to_msg_remove_ratio[0]
+            msgs_remove_ratio = descr_to_msg_remove_ratio[1]
+            tokens_tobe_removed = text_token_amount - max_tokens
 
-            if (index_of_chat_start-ad_name_len) > words_remove_amount:
-                del text_words[ad_name_len:ad_name_len+words_remove_amount]
-            else:
-                words_remove_amount -= (index_of_chat_start-ad_name_len)
-                last_actor_msg_index = text_words.index('Чат:')+1
-                cur_actor_msg_index = last_actor_msg_index + 2
-                
-                for i in range(cur_actor_msg_index, len(text_words)):
-                    if i == len(text_words)-1: 
-                        #Text is TOOOO LONG! Can't cut to {max_tokens} amount!
-                        self.save_json({"text" : text}, f"working\\crash_2048tokens\\question_{oid}_text.json")
-                        raise Exception(f"Chat {oid}: #Text is TOOOO LONG! Can't cut to {max_tokens} amount!")
-                    if text_words[i] in ['Продавец', 'Покупатель']:
-                        last_actor_msg_index = cur_actor_msg_index
-                        cur_actor_msg_index = i
-
-                        words_remove_amount -= (cur_actor_msg_index - last_actor_msg_index)
-                        if words_remove_amount < 0:
+            ad_descr_list = ad_descr.split(' ')
+            MIN_MSGS_AMOUNT = 5
+            tokens_tobe_removed_prev = tokens_tobe_removed
+            while tokens_tobe_removed > 0:
+                if len(ad_descr_list) > 0:
+                    for _ in range(descr_remove_ratio):
+                        ad_descr_list.pop()
+                        tokens_tobe_removed -= 1
+                        if tokens_tobe_removed <= 0 or len(ad_descr_list) == 0:
                             break
-                del text_words[text_words.index('Чат:')+1:ad_name_len+cur_actor_msg_index+1]          
-        return text
+                if len(msgs) > MIN_MSGS_AMOUNT:
+                    for _ in range(msgs_remove_ratio):
+                        tokens_in_msg = len(msgs[0]['msg'].split(' '))
+                        del msgs[0]
+                        tokens_tobe_removed -= (tokens_in_msg + 1) # +1 because of 'Buyer:' or 'Seller:'
+                        if tokens_tobe_removed <= 0 or len(msgs) <= MIN_MSGS_AMOUNT:
+                            break
+                if tokens_tobe_removed_prev == tokens_tobe_removed:
+                    crash_save_path = f"working\crash_{max_tokens}tokens\question_{oid}_text.json"
+                    self.save_json(data={
+                        "oid" : oid,
+                        "ad_name" : ad_name,
+                        "ad_descr" : ' '.join(ad_descr_list),
+                        "messages" : msgs
+                    },
+                    save_path=crash_save_path)
+                    raise Exception(f"Tried to reduce {oid} question's tokens. WENT INTO INFINITE LOOP, CHECK MANUALLY!\nSaved crash info to {crash_save_path}")
+                tokens_tobe_removed_prev = tokens_tobe_removed
+            
+            ad_descr = ' '.join(ad_descr_list)
+        return {
+            "ad_name" : ad_name,
+            "ad_descr" : ad_descr,
+            "messages" : msgs
+        } 
 
     def update_csv_with_labels(self, preds_csv, json_folder):
         def get_correct_answer(json_file_path):

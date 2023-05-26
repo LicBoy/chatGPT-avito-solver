@@ -143,8 +143,7 @@ while True:
         print(f"No Message from one side, choosing '{CLASSES[2]}'")
         label = CLASSES[2]
     else:
-        data_util.jsons_to_csv("working\\cur_question.csv", input_jsons=[chat_info], input_folder=None,
-                            test=True)
+        data_util.jsons_to_csv("working\\cur_question.csv", input_jsons=[chat_info], test=True)
         cur_question_csv = pd.read_csv('working\\cur_question.csv')
         test_dataset = CustomDataset(cur_question_csv, tokenizer, phase='test')
         test_dataloader = DataLoader(test_dataset, batch_size=1)
