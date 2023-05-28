@@ -109,6 +109,11 @@ def plus_or_minus():
     else:
         return False
 
+def make_crash_screenshot(chat_info):
+    screen_save_path = f"working\\crash_screenshots\\crash_{chat_info['oid']}_{datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}.png"
+    print(f"Some error occured, saving screen to {screen_save_path}")
+    browser.save_screenshot(screen_save_path)
+
 from datetime import datetime
 def save_model_predict_log(json_data, base_output_path="working\\model_predicts\\"):
     current_date = datetime.now().strftime('%d-%m-%Y')
@@ -116,84 +121,94 @@ def save_model_predict_log(json_data, base_output_path="working\\model_predicts\
     os.makedirs(output_path, exist_ok=True)
     data_util.save_json(json_data, output_path + f"question_{json_data['oid']}_predict_log.json")
 
-SELECT_ANS_BASE_TIME = 15
+SELECT_ANS_BASE_TIME = 10
 data_util = DataUtil()
 
 while True:
-    try: 
-        chat_info = avito_page.get_chat_info()
-    except:
-        if avito_page.tasks_ended()== True:
-            print(F"CHATS ENDED.")
-            #No tasks, exit or refresh page until tasks are here
-            break
+    try:
+        try: 
+            chat_info = avito_page.get_chat_info()
+        except:
+            if avito_page.tasks_ended() == True:
+                print(F"CHATS ENDED. Waiting 10 minutes and recheck.")
+                time.sleep(600)
+                browser.refresh()
+                continue
+            else:
+                make_crash_screenshot(chat_info)
+                raise Exception(f"Couldn't get page info, unrecognized behaviour! Check Page!")
+        chat_info = data_util.clean_json(chat_info)
+        #check amount of msgs of buyer and seller
+        buyer_len, seller_len = 0, 0
+        for msg in chat_info['messages']:
+            if msg['from'] == 'buyer':
+                buyer_len += 1
+            else:
+                seller_len += 1
+
+        label = None
+        if buyer_len == 0 or seller_len == 0:
+            print(f"Chat {chat_info['oid']}.No Message from one side, choosing '{CLASSES[2]}'")
+            label = CLASSES[2]
+            chat_info['answers'] = {}
+            chat_info['answers']['all'] = CLASSES
+            chat_info['answers']['correct'] = label
+            data_util.save_json(data=chat_info, save_path=f"C:\\Users\\user\\Downloads\\question_{chat_info['oid']}.json")
         else:
-            raise Exception(f"Couldn't get page info, unrecognized behaviour! Check Page!")
-    chat_info = data_util.clean_json(chat_info)
-    #check amount of msgs of buyer and seller
-    buyer_len, seller_len = 0, 0
-    for msg in chat_info['messages']:
-        if msg['from'] == 'buyer':
-            buyer_len += 1
-        else:
-            seller_len += 1
+            data_util.jsons_to_csv("working\\cur_question.csv", input_jsons=[chat_info], test=True)
+            cur_question_csv = pd.read_csv('working\\cur_question.csv')
+            test_dataset = CustomDataset(cur_question_csv, tokenizer, phase='test')
+            test_dataloader = DataLoader(test_dataset, batch_size=1)
+            inference_result = inference(inference_model, test_dataloader)
 
-    label = None
-    if buyer_len == 0 or seller_len == 0:
-        print(f"No Message from one side, choosing '{CLASSES[2]}'")
-        label = CLASSES[2]
-    else:
-        data_util.jsons_to_csv("working\\cur_question.csv", input_jsons=[chat_info], test=True)
-        cur_question_csv = pd.read_csv('working\\cur_question.csv')
-        test_dataset = CustomDataset(cur_question_csv, tokenizer, phase='test')
-        test_dataloader = DataLoader(test_dataset, batch_size=1)
-        inference_result = inference(inference_model, test_dataloader)
+            oid = [i for i in inference_result[0]]
+            labels = [i for i in inference_result[1]]
+            prob = [i for i in inference_result[2]]
 
-        oid = [i for i in inference_result[0]]
-        labels = [i for i in inference_result[1]]
-        prob = [i for i in inference_result[2]]
+            oid = oid[0]
+            label = labels[0]
+            print("MODEL PREDICT:", oid, label)
+            # correct_label = int(input("Input correct label:"))
+            # correct_label = CLASSES[correct_label]
 
-        oid = oid[0]
-        label = labels[0]
-        print("MODEL PREDICT:", oid, label)
-        # correct_label = int(input("Input correct label:"))
-        # correct_label = CLASSES[correct_label]
+        # Wait time
+        cur_select_ans_time = 1.
+        if not (buyer_len == 0 or seller_len == 0):
+            cur_disp = get_cur_disp(cur_question_csv['text'][0])
+            cur_select_ans_random_time = random.uniform(0., cur_disp)
+            cur_select_ans_random_time = cur_select_ans_random_time if plus_or_minus() else -cur_select_ans_random_time
+            cur_select_ans_time = SELECT_ANS_BASE_TIME*cur_disp + cur_select_ans_random_time
 
-    # Wait time
-    cur_disp = get_cur_disp(cur_question_csv['text'][0])
-    cur_select_ans_random_time = random.uniform(0., cur_disp)
-    cur_select_ans_random_time = cur_select_ans_random_time if plus_or_minus() else -cur_select_ans_random_time
-    cur_select_ans_time = SELECT_ANS_BASE_TIME*cur_disp + cur_select_ans_random_time
+            print(f"Time random wait: dispersion = {cur_disp}, random wait time = {cur_select_ans_time}")
+            chat_info["predict_info"] = {}
+            chat_info["predict_info"]["predict_label"] = label
+            # chat_info["predict_info"]["correct_label"] = correct_label
+            now_datetime = datetime.now().strftime('%d-%m-%Y, %H:%M:%S')
+            chat_info["predict_info"]["predict_time"] = now_datetime
+            chat_info["predict_info"]["random_wait"] = cur_select_ans_time
+            with open('wait_times.txt', 'a+') as file:
+                file.write(f'{now_datetime} {oid} {cur_select_ans_time}\n')
+            save_model_predict_log(chat_info)
 
-    print(f"Time random wait: dispersion = {cur_disp}, random wait time = {cur_select_ans_time}")
-    chat_info["predict_info"] = {}
-    chat_info["predict_info"]["predict_label"] = label
-    # chat_info["predict_info"]["correct_label"] = correct_label
-    now_datetime = datetime.now().strftime('%d-%m-%Y, %H:%M:%S')
-    chat_info["predict_info"]["predict_time"] = now_datetime
-    chat_info["predict_info"]["random_wait"] = cur_select_ans_time
-    with open('wait_times.txt', 'a+') as file:
-        file.write(f'{now_datetime} {oid} {cur_select_ans_time}\n')
-    save_model_predict_log(chat_info)
+        time.sleep(cur_select_ans_time)
+        avito_page.click_answer(label)
+        time.sleep(0.5)
+        avito_page.click_submit_btn()
 
-    time.sleep(cur_select_ans_time)
-    avito_page.click_answer(label)
-    time.sleep(0.5)
-    avito_page.click_submit_btn()
-
-    #Look for "SomeError" msg, if appeared, try to resubmit button
-    while avito_page.some_error_msg_appeared():
-        print(f"'Some Error' Appeared, trying to choose answer again...")
-        time.sleep(10)
+        #Look for "SomeError" msg, if appeared, try to resubmit button
+        while avito_page.some_error_msg_appeared():
+            print(f"'Some Error' Appeared, trying to choose answer again...")
+            time.sleep(10)
+            browser.refresh()
+            if chat_info["oid"] == avito_page.get_question_number():
+                avito_page.click_answer(label)
+                avito_page.click_submit_btn()     
+        avito_page.wait_next_question_load(int(chat_info["oid"]))
+        # break
+    except Exception as error:
+        print(error)
+        make_crash_screenshot(chat_info)
         browser.refresh()
-        if chat_info["oid"] == avito_page.get_question_number():
-            avito_page.click_answer(label)
-            avito_page.click_submit_btn()     
-    avito_page.wait_next_question_load(int(chat_info["oid"]))
-    # screen_save_path = f"working\\crash_screenshots\\crash_{chat_info['oid']}_{datetime.now().strftime('%d-%m-%Y-%H-%M-%S')}.png"
-    # print(f"Some error occured, saving screen to {screen_save_path}")
-    # browser.save_screenshot(screen_save_path)
-    # break
 
 #END
 time.sleep(3)
