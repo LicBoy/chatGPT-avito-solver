@@ -1,3 +1,13 @@
+// ==UserScript==
+// @name         Download Ad Info on Click
+// @version      1.0
+// @description  Create a JSON object containing information about an ad when a div with the class "answer" is clicked, and download it to your PC.
+// @match        https://centiman.avito.ru/service-dataset-collector-frontend/project/791
+// @grant        none
+// ==/UserScript==
+// THIS COMMENTS ARE NEEDED FOR WORKING WITH TAMPERMONKEY
+// if copying just to browser console, this comments do nothing
+
 function cleanString(str) {
     // Remove line breaks at the end of the string
     str = str.replace(/\s+$/, '');
@@ -90,15 +100,36 @@ function download_json_from_click(targetNode) {
     }
 }
 
-const targetNode = document.querySelector('.progress_bar > * > *');
-const config = { characterData: true, attributes: false, childList: false, subtree: true }
+function waitForElement(selector, text_wait_for='прогресс') {
+  return new Promise((resolve) => {
+    const checkElement = () => {
+      const element = document.querySelector(selector);
+      if (element && element.textContent.includes(text_wait_for)) {
+        resolve(element);
+      } else {
+        setTimeout(checkElement, 100); // Retry after 100 milliseconds
+      }
+    };
 
-const callback = mutations => {
-    mutations.forEach(mutation => {
-        download_json_from_click(targetNode)
-    });
+    checkElement();
+  });
 }
 
-const observer = new MutationObserver(callback);
-observer.observe(targetNode, config);
-download_json_from_click(targetNode)
+const target_node_selector = '.progress_bar > * > *'
+const text_wait_for = 'прогресс'
+waitForElement(target_node_selector, text_wait_for)
+    .then((element) => {
+    console.log(`Element with "${text_wait_for}" text found:`, element);
+    const targetNode = document.querySelector(target_node_selector);
+    const config = { characterData: true, attributes: false, childList: false, subtree: true }
+
+    const callback = mutations => {
+        mutations.forEach(mutation => {
+            download_json_from_click(targetNode)
+        });
+    }
+
+    const observer = new MutationObserver(callback);
+    observer.observe(targetNode, config);
+    download_json_from_click(targetNode)
+})
