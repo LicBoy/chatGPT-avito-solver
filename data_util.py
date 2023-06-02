@@ -1,5 +1,6 @@
 import json, os, re, csv, random
 import pandas as pd
+from datetime import datetime
 
 class DataUtil():
     ascii_codes_regex = r"\\[a-zA-Z0-9]{5}"
@@ -52,8 +53,15 @@ class DataUtil():
     def move_jsons_to_folder(self, input_folder, output_folder, clean_jsons=True, copy=True):
         if input_folder == "C:\\Users\\user\\Downloads\\chats" and copy == False:
             raise Exception(f"Trying to Cut Files from {input_folder}! Can't lose base questions dataset!")
-        if input_folder == output_folder and copy == False:
-            copy = True
+        if input_folder == 'C:\\Users\\user\\Downloads' and copy == True:
+            print(f'You are trying NOT to move, but copy files from DOWNLOADS directory')
+            accept_copy_input = input(f'Type "yes" to confirm COPYING files: ')
+            if accept_copy_input != 'yes':
+                print(f'Cancelling move jsons operation.')
+                return
+        if input_folder == output_folder:
+            print(f'Input folder {input_folder} is equal to output folder!')
+            return
         json_files = [file for file in os.listdir(input_folder) if file.endswith('.json') and file.startswith('question')]
         os.makedirs(output_folder, exist_ok=True)
         for filename in json_files:
@@ -132,6 +140,8 @@ class DataUtil():
             return [oid, category, text]
 
     # 2048 for rubert-tiny2, 512 for rubert-tiny
+    # TODO: Reimplement logic: change descr_to_msg remove ratio according to 
+    # descr/msgs percentage, e.g.: 80% descr_tokens / 20% msg_tokens = (4, 1) ratio
     def fix_many_tokens(self, 
             oid: str, text_pattern: str, ad_name: str, ad_descr: str, msgs: list, 
             descr_to_msg_remove_ratio : tuple[int, int]=(3, 1), 
@@ -194,6 +204,16 @@ class DataUtil():
     def update_csv_with_labels(self, preds_csv, json_folder):
         def get_correct_answer(json_file_path):
             data = self.load_json(json_file_path)
+            buyer_has_msg, seller_has_msg = False, False
+            for msg_data in data['messages']:
+                if buyer_has_msg and seller_has_msg:
+                    break
+                if msg_data['from'] == 'buyer':
+                    buyer_has_msg = True
+                else:
+                    seller_has_msg = True
+            if not buyer_has_msg or not seller_has_msg:
+                return 'EMPTY'
             return data['answers']['correct'] if "correct" not in data['answers']['correct'] else data['answers']['correct']["correct"]
 
         df = pd.read_csv(preds_csv)
@@ -207,6 +227,10 @@ class DataUtil():
                 json_file_path = os.path.join(json_folder, json_file_name)
 
                 correct_answer = get_correct_answer(json_file_path)
+                if correct_answer == 'EMPTY':
+                    df.at[index, 'predict'] = 'Чат неинформативный'
+                    df.at[index, 'correct'] = 'Чат неинформативный'
+                    continue
                 df.at[index, 'correct'] = correct_answer
         df.to_csv(preds_csv, index=False, encoding='utf-8-sig')
 
@@ -221,4 +245,39 @@ class DataUtil():
         correct_predictions = (df[preds_col] == df[targets_col]).sum()
         total_predictions = len(df)
         percent_correct = (correct_predictions / total_predictions) * 100
-        return (percent_correct, correct_predictions)
+        return (f"% Correct: {percent_correct}; {correct_predictions}/{total_predictions} chats!")
+
+    def search_jsons_by_date(self, folder_path, start_date, end_date):
+        matching_oids = []
+        start_date = datetime.strptime(start_date, "%d-%m-%Y, %H:%M:%S")
+        end_date = datetime.strptime(end_date, "%d-%m-%Y, %H:%M:%S")
+
+        for file_name in os.listdir(folder_path):
+            if file_name.endswith(".json"):
+                file_path = os.path.join(folder_path, file_name)
+                with open(file_path, encoding='utf-8') as json_file:
+                    try:
+                        data = json.load(json_file)
+                        predict_time = datetime.strptime(data["predict_info"]["predict_time"], "%d-%m-%Y, %H:%M:%S")
+                        if start_date <= predict_time <= end_date:
+                            matching_oids.append(data["oid"])
+                    except (ValueError, KeyError):
+                        pass
+        return matching_oids
+
+    def search_jsons_by_string(self, folder_path, search_string):
+        matching_oids = []
+
+        for file_name in os.listdir(folder_path):
+            if file_name.endswith(".json"):
+                file_path = os.path.join(folder_path, file_name)
+                with open(file_path, encoding='utf-8') as json_file:
+                    try:
+                        data = json.load(json_file)
+                        ad_name = data.get("ad_name", "")
+                        if search_string.lower() in ad_name.lower():
+                            matching_oids.append(data["oid"])
+                    except (ValueError, KeyError):
+                        pass
+
+        return matching_oids

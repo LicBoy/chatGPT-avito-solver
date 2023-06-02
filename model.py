@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 from transformers import BertTokenizer
 
-tokenizer_path = 'cointegrated/rubert-tiny'
+tokenizer_path = 'cointegrated/rubert-tiny2'
 tokenizer = BertTokenizer.from_pretrained(tokenizer_path)
 
 CLASSES = ['Да', 'Нет', 'Чат неинформативный']

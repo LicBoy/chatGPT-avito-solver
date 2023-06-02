@@ -17,7 +17,7 @@ browser = webdriver.Chrome()
 avito_page = AvitoProjectPage(AVITO_URL, browser, {"login" : LOGIN, "password" : PASSWORD}, 739)
 
 ### PREPARE ###
-tokenizer_path = 'cointegrated/rubert-tiny'
+tokenizer_path = 'cointegrated/rubert-tiny2'
 tokenizer = BertTokenizer.from_pretrained(tokenizer_path)
 
 CLASSES = ['Да', 'Нет', 'Чат неинформативный']
@@ -115,13 +115,17 @@ def make_crash_screenshot(chat_info):
     browser.save_screenshot(screen_save_path)
 
 from datetime import datetime
-def save_model_predict_log(json_data, base_output_path="working\\model_predicts\\"):
+def save_model_predict_log(json_data: dict, output_path_list:list=["working", "model_predicts"]):
     current_date = datetime.now().strftime('%d-%m-%Y')
-    output_path = base_output_path + f"Predicts_{current_date}\\"
-    os.makedirs(output_path, exist_ok=True)
-    data_util.save_json(json_data, output_path + f"question_{json_data['oid']}_predict_log.json")
+    output_path_list.append(f"Predicts_{current_date}")
+    output_save_folder = '\\'.join(output_path_list)
+    os.makedirs(output_save_folder, exist_ok=True)
+    cur_question_filename = f"question_{json_data['oid']}_predict_log.json"
+    output_path_list.append(cur_question_filename)
+    full_save_path = '\\'.join(output_path_list)
+    data_util.save_json(json_data, full_save_path)
 
-SELECT_ANS_BASE_TIME = 10
+SELECT_ANS_BASE_TIME = 15
 data_util = DataUtil()
 
 while True:
